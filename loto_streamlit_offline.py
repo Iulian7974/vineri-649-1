@@ -54,13 +54,6 @@ numar_urmarit = st.number_input("Număr de urmărit", min_value=1, max_value=49,
 
 try:
     with sqlite3.connect("loto_data.db") as conn:
-        query = f"""
-            SELECT * FROM loto_draws
-            WHERE strftime('%Y', Data) = ?
-            AND (? IN ("Nr.1", "Nr.2", "Nr.3", "Nr.4", "Nr.5", "Nr.6"))
-            ORDER BY Data DESC
-        """
-        # Folosim parametri pentru a preveni SQL injection, deși aici riscul e minim
         df_filtrat = pd.read_sql_query(f"""
             SELECT * FROM loto_draws
             WHERE strftime('%Y', Data) = '{an}'
@@ -130,12 +123,23 @@ if uploaded_file is not None:
                 existing_df = pd.DataFrame(columns=['Data'] + draw_cols)
 
             combined_df = pd.concat([existing_df, new_df], ignore_index=True).drop_duplicates(subset=["Data"] + draw_cols)
+            
+            # ============================================================================== #
+            # AICI ESTE CORECȚIA: Convertim coloana 'Data' în format text 'YYYY-MM-DD' etc.   #
+            # Baza de date sqlite3 nu suportă direct obiectele de tip 'Timestamp' de la pandas.#
+            if pd.api.types.is_datetime64_any_dtype(combined_df['Data']):
+                 combined_df['Data'] = combined_df['Data'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            # ============================================================================== #
+            
             combined_df.to_sql("loto_draws", conn, if_exists="replace", index=False)
         st.success(f"✅ {len(new_df)} extrageri noi au fost adăugate. Total actual: {len(combined_df)}.")
 
         # Pasul 2: Dacă procesarea a reușit, încearcă recalcularea predicției ML
         try:
+            # Asigurăm că data este în format datetime pentru sortare
+            combined_df['Data'] = pd.to_datetime(combined_df['Data'])
             recent_df = combined_df.sort_values("Data", ascending=False).head(20)
+            
             if len(recent_df) >= 20:
                 X_train = recent_df[draw_cols].astype(int)
                 y_preds = []
